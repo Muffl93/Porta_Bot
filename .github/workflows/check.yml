@@ -1,0 +1,66 @@
+name: PortaSplit-Check
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # alle 10 Minuten (GitHub startet manchmal etwas verspätet)
+  workflow_dispatch:          # zusätzlich per Knopfdruck unter "Actions" startbar
+
+permissions:
+  contents: write             # nur für das gelegentliche "Wachhalten" (siehe unten)
+
+concurrency:
+  group: portasplit-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ZUSTAND_ORDNER: .zustand
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Der Zustand (was schon gemeldet wurde) liegt im internen Cache von GitHub,
+      # nicht im öffentlichen Repo – so verrät er nichts über deinen Standort.
+      - name: Zustand laden
+        uses: actions/cache/restore@v4
+        with:
+          path: .zustand
+          key: zustand-${{ github.run_id }}
+          restore-keys: zustand-
+
+      - name: Shops prüfen
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STANDORT: ${{ secrets.STANDORT }}
+        run: python checker.py
+
+      - name: Zustand speichern
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .zustand
+          key: zustand-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # GitHub pausiert geplante Läufe, wenn ein Repo 60 Tage lang unverändert bleibt.
+      # Darum alle ~50 Tage eine harmlose Mini-Änderung (nur ein Datum).
+      - name: Wachhalten
+        run: |
+          letzter=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - letzter )) -gt $(( 50 * 86400 )) ]; then
+            date -u +%F > .wachhalten
+            git config user.name "portasplit-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .wachhalten
+            git commit -m "Wachhalten"
+            git push
+          fi
