@@ -61,6 +61,26 @@ Danach läuft der Bot automatisch alle 10 Minuten. GitHub startet geplante Läuf
 
 ---
 
+## Übersichtsseite mit Karte (optional)
+
+Eine Webseite ähnlich wie braucheklima.de: eine Karte mit **allen toom- und OBI-Märkten in Deutschland**, jeweils mit Bestand und Telefonnummer. Dazu zeigt sie, wann ein Markt zuletzt Bestand hatte, was zuletzt neu aufgetaucht ist, und den Stand der Online-Shops. Sie wird etwa alle 30 Minuten aktualisiert und ist kostenlos.
+
+**Datenschutz:** Die Seite enthält nur deutschlandweite Daten. Deinen Standort gibst du auf der Seite ein. Er bleibt in deinem Browser, und Entfernungen und Umkreis werden dort berechnet. Nur die Suche nach einer PLZ fragt kurz bei OpenStreetMap nach, wo diese liegt.
+
+**Einrichten**
+1. Lade den Ordner `karte` (mit `index.html`) und die neue `checker.py` ins Repo hoch.
+2. Lege die Datei `.github/workflows/karte.yml` an, genauso wie `check.yml` (**Add file → Create new file**, Inhalt aus der Datei kopieren).
+3. Wähle unter **Settings → Pages →** bei „Source“ **GitHub Actions** aus.
+4. Starte unter **Actions → PortaSplit-Karte → Run workflow** den ersten Lauf. Er dauert etwa 4 bis 5 Minuten, weil alle rund 650 Märkte geprüft werden.
+5. Die Seite ist danach unter `https://<dein-name>.github.io/<repo-name>/` erreichbar. Den genauen Link zeigt **Settings → Pages**.
+
+**Passwortschutz (empfohlen)**
+Lege unter **Settings → Secrets and variables → Actions** ein weiteres Secret `KARTE_PASSWORT` an. Ab dem nächsten Lauf werden die Daten mit AES-256 verschlüsselt, und die Seite fragt nach dem Passwort. Ohne das Passwort sind die Daten nicht lesbar, auch nicht für jemanden, der den Quelltext anschaut. Mit „Auf diesem Gerät merken“ musst du das Passwort pro Gerät nur einmal eingeben.
+- Nimm ein **langes** Passwort, z. B. vier zufällige Wörter. Die verschlüsselte Datei ist öffentlich abrufbar, ein kurzes Passwort ließe sich durchprobieren.
+- Passwort ändern: einfach das Secret ändern. Ab dem nächsten Lauf gilt das neue, und gemerkte Geräte fragen erneut.
+
+---
+
 ## Wenn toom oder OBI den Bot aus GitHub sperren
 
 Manche Shops blocken Anfragen aus Rechenzentren. Im Log steht dann z. B. `✖ toom: HTTP 403`, und nach sechs Fehlversuchen kommt eine Telegram-Warnung. Dann gibt es zwei Möglichkeiten:
@@ -99,6 +119,9 @@ Im Log steht pro Shop, was der Bot sieht:
 | **nicht verfügbar (instoreonly)** | Wird nur im Markt verkauft, online gibt es keinen Bestand |
 | **Seite nicht gefunden (404)** | Der Link ist veraltet und muss ersetzt werden |
 | **Fehler: HTTP 403 / Captcha** | Der Shop blockt den Bot; das ist bei Amazon üblich |
+| **Produkt nicht (mehr) gelistet** | Der Link führt nicht mehr zum Produkt, sondern z. B. auf eine Kategorie |
+
+Shops, die Anfragen von GitHub blockieren (MediaMarkt, Saturn, Euronics, Amazon, Klimafy), sind in `config.yaml` mit `aktiv: false` abgeschaltet. Lässt du den Bot auf deinem PC laufen, kannst du sie dort wieder auf `true` setzen.
 
 Hinweis: Die bisher bekannten Links zu **Hornbach**, **Bauhaus** und **Globus** waren am 05.11.2026 tot, und **expert** liefert keine auswertbaren Daten. Sie sind in `config.yaml` auskommentiert, bis jemand neue findet.
 
@@ -109,6 +132,7 @@ python checker.py                 normaler Lauf
 python checker.py --trocken       nur anzeigen, nichts senden oder speichern
 python checker.py --test-telegram Testnachricht senden
 python checker.py --chat-id       Chat-ID anzeigen (vorher dem Bot schreiben)
+python checker.py --karte _site   Übersichtsseite erzeugen (lokal ansehen: cd _site, dann python -m http.server, dann http://localhost:8000)
 ```
 
 ## Gut zu wissen

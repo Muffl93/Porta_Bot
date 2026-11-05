@@ -31,7 +31,7 @@
 
   .controls { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 12px; }
   .controls input[type=text] { flex: 1 1 180px; min-width: 0; }
-  input[type=text], select, button { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  input[type=text], input[type=password], select, button { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
   button { cursor: pointer; background: var(--card); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -76,6 +76,16 @@
   .leaflet-popup-content { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin: 12px 14px; }
   .leaflet-popup-content b { font-size: 15px; }
 
+  #schloss { position: fixed; inset: 0; z-index: 1000; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  #schloss[hidden] { display: none; }
+  #schloss .card { width: 100%; max-width: 380px; padding: 24px; }
+  #schloss h1 { font-size: 1.35rem; margin-bottom: 4px; }
+  #schloss form { display: grid; gap: 10px; margin-top: 16px; }
+  #schloss input[type=password] { width: 100%; }
+  #schloss .fehler { color: var(--bad); font-size: .9rem; min-height: 1.3em; margin: 0; }
+  body.gesperrt main { visibility: hidden; }
+  .abmelden { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; font-size: inherit; cursor: pointer; }
+
   @media (max-width: 900px) {
     .layout, .unten { grid-template-columns: minmax(0, 1fr); }
     #karte { height: 420px; }
@@ -90,6 +100,19 @@
 </style>
 </head>
 <body>
+<div id="schloss" hidden>
+  <div class="card">
+    <h1>🔒 PortaSplit-Radar</h1>
+    <p class="muted" style="margin:0">Diese Seite ist passwortgeschützt.</p>
+    <form id="schloss-form" autocomplete="on">
+      <input type="text" name="username" value="portasplit-radar" autocomplete="username" hidden>
+      <input type="password" id="pw" placeholder="Passwort" aria-label="Passwort" autocomplete="current-password" required>
+      <label class="chk"><input type="checkbox" id="merken" checked> Auf diesem Gerät merken</label>
+      <button class="primary" type="submit" id="oeffnen">Öffnen</button>
+      <p class="fehler" id="pw-fehler" role="alert"></p>
+    </form>
+  </div>
+</div>
 <main>
   <header>
     <div>
@@ -298,7 +321,10 @@ function zeichne() {
   // Stand + Quellen
   $("stand").textContent = `Stand ${vor(daten.aktualisiert)} (${new Date(daten.aktualisiert).toLocaleString("de-DE", {dateStyle: "short", timeStyle: "short"})})`;
   const q = (daten.quellen || []).map(q => `${q.name === "obi" ? "OBI" : "toom"}: ${q.ok ? esc(q.info) : "Fehler – " + esc(q.info)}`).join(" · ");
-  $("fuss").innerHTML = `${q ? q + "<br>" : ""}Daten werden etwa alle 30 Minuten aktualisiert${daten.max_preis ? `; Online-Angebote über ${euro(daten.max_preis)} gelten als zu teuer` : ""}. Marktbestände ändern sich schnell – vor der Fahrt anrufen. Karte © OpenStreetMap-Mitwirkende.`;
+  $("fuss").innerHTML = `${q ? q + "<br>" : ""}Daten werden etwa alle 30 Minuten aktualisiert${daten.max_preis ? `; Online-Angebote über ${euro(daten.max_preis)} gelten als zu teuer` : ""}. Marktbestände ändern sich schnell – vor der Fahrt anrufen. Karte © OpenStreetMap-Mitwirkende.` +
+    (paket ? ` · <button class="abmelden" id="abmelden">Auf diesem Gerät abmelden</button>` : "");
+  const ab = $("abmelden");
+  if (ab) ab.onclick = () => { speicher(schluesselName(paket), null); schluessel = null; daten = null; location.reload(); };
 }
 
 function setzeHeim(lat, lon, label) {
@@ -341,21 +367,88 @@ $("geo").addEventListener("click", () => {
 $("umkreis").addEventListener("change", e => { opt.umkreis = +e.target.value; speicher("pr_opt", opt); zeichne(); if (heim && kreis) karte.fitBounds(kreis.getBounds()); });
 ["toom", "obi", "bestand"].forEach(k => $("f-" + k).addEventListener("change", e => { opt[k] = e.target.checked; speicher("pr_opt", opt); zeichne(); }));
 
-// ---------- Daten laden ----------
+// ---------- Daten laden (optional verschlüsselt) ----------
+const b64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+const b64an = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+let paket = null, schluessel = null;
+
+async function leiteAb(pw, p) {
+  const basis = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({name: "PBKDF2", hash: "SHA-256", salt: b64(p.salz), iterations: p.runden},
+    basis, {name: "AES-GCM", length: 256}, true, ["decrypt"]);
+}
+async function entschluessele(p, k) {
+  const klar = await crypto.subtle.decrypt({name: "AES-GCM", iv: b64(p.iv)}, k, b64(p.daten));
+  return JSON.parse(new TextDecoder().decode(klar));
+}
+const schluesselName = p => "pr_key_" + p.salz;
+async function gemerkterSchluessel(p) {
+  const roh = speicher(schluesselName(p));
+  if (!roh) return null;
+  try { return await crypto.subtle.importKey("raw", b64(roh), {name: "AES-GCM"}, true, ["decrypt"]); } catch (e) { return null; }
+}
+function sperren(text) {
+  document.body.classList.add("gesperrt");
+  $("schloss").hidden = false;
+  $("pw-fehler").textContent = text || "";
+  setTimeout(() => $("pw").focus(), 50);
+}
+function entsperrt() {
+  document.body.classList.remove("gesperrt");
+  $("schloss").hidden = true;
+  setTimeout(() => karte.invalidateSize(), 50);
+}
+
+$("schloss-form").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  $("oeffnen").disabled = true; $("pw-fehler").textContent = "Prüfe …";
+  try {
+    const k = await leiteAb($("pw").value, paket);
+    const d = await entschluessele(paket, k);
+    schluessel = k;
+    if ($("merken").checked) speicher(schluesselName(paket), b64an(await crypto.subtle.exportKey("raw", k)));
+    $("pw").value = "";
+    entsperrt(); zeigeDaten(d, true);
+  } catch (e) {
+    $("pw-fehler").textContent = "Falsches Passwort.";
+  } finally { $("oeffnen").disabled = false; }
+});
+
+function zeigeDaten(d, erstesMal) {
+  daten = d;
+  zeichne();
+  if (erstesMal && heim) {
+    $("standort-info").textContent = `Standort: ${heim.label} – nur in deinem Browser gespeichert.`;
+    if (opt.umkreis && kreis) karte.fitBounds(kreis.getBounds(), {padding: [10, 10]}); else karte.setView([heim.lat, heim.lon], 9);
+  }
+}
+
 async function lade(erstesMal) {
   try {
-    const r = await fetch("daten.json?t=" + Date.now(), {cache: "no-store"});
-    daten = await r.json();
-    zeichne();
-    if (erstesMal && heim) {
-      $("standort-info").textContent = `Standort: ${heim.label} – nur in deinem Browser gespeichert.`;
-      if (opt.umkreis && kreis) karte.fitBounds(kreis.getBounds(), {padding: [10, 10]}); else karte.setView([heim.lat, heim.lon], 9);
+    let r = await fetch("daten.enc.json?t=" + Date.now(), {cache: "no-store"});
+    if (r.ok) {
+      paket = await r.json();
+      if (!schluessel) schluessel = await gemerkterSchluessel(paket);
+      if (!schluessel) { if (erstesMal) sperren(); return; }
+      try {
+        const d = await entschluessele(paket, schluessel);
+        entsperrt(); zeigeDaten(d, erstesMal || !daten);
+      } catch (e) {
+        schluessel = null; speicher(schluesselName(paket), null);
+        sperren("Das Passwort wurde geändert – bitte neu eingeben.");
+      }
+      return;
     }
+    r = await fetch("daten.json?t=" + Date.now(), {cache: "no-store"});
+    if (!r.ok) throw new Error("keine Daten");
+    entsperrt(); zeigeDaten(await r.json(), erstesMal);
   } catch (e) {
+    entsperrt();
     $("stand").textContent = "noch keine Daten";
     $("liste").innerHTML = `<div class="leer">Die Übersicht wurde noch nicht erzeugt. Starte den Workflow „PortaSplit-Karte“ unter Actions.</div>`;
   }
 }
+document.body.classList.add("gesperrt");
 lade(true);
 setInterval(() => lade(false), 5 * 60 * 1000);
 setInterval(() => daten && ($("stand").textContent = `Stand ${vor(daten.aktualisiert)} (${new Date(daten.aktualisiert).toLocaleString("de-DE", {dateStyle: "short", timeStyle: "short"})})`), 60 * 1000);

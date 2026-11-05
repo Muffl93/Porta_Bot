@@ -20,7 +20,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 import yaml
@@ -355,10 +355,30 @@ def angebote_aus_jsonld(seite: str) -> list[tuple[str, float | None]]:
         except ValueError:
             for v in re.findall(r'"availability"\s*:\s*"([^"]+)"', block):
                 out.append((_verfuegbarkeit(v), None))
-    if not out:  # Mikrodaten als Rückfall
+    # Mikrodaten (itemprop="price"/"availability") als Rückfall bzw. für fehlende Preise
+    mikro_preis = None
+    m = re.search(r'itemprop=["\']price["\'][^>]*content=["\']([0-9][0-9.,]*)', seite, re.I) or \
+        re.search(r'content=["\']([0-9][0-9.,]*)["\'][^>]*itemprop=["\']price["\']', seite, re.I)
+    if m:
+        mikro_preis = zahl(m.group(1))
+    if not out:
         for v in re.findall(r'itemprop=["\']availability["\'][^>]*(?:href|content)=["\']([^"\']+)', seite, re.I):
-            out.append((_verfuegbarkeit(v), None))
+            out.append((_verfuegbarkeit(v), mikro_preis))
+    elif mikro_preis is not None:
+        out = [(v, p if p is not None else mikro_preis) for v, p in out]
     return out
+
+
+def _umgeleitet_auf_anderes(angefragt: str, endgueltig: str) -> bool:
+    """True, wenn der Shop vom Produkt weg (z. B. auf eine Kategorie) umgeleitet hat."""
+    a, z = urlsplit(angefragt), urlsplit(endgueltig)
+    if a.path.rstrip("/") == z.path.rstrip("/"):
+        return False
+    letzter = a.path.rstrip("/").rsplit("/", 1)[-1].lower()
+    nummern = re.findall(r"\d{4,}", letzter)
+    if nummern:
+        return not any(n in endgueltig for n in nummern)
+    return letzter not in z.path.lower()
 
 
 def pruefe_shopseite(http: Http, shop: dict, max_preis: float) -> tuple[str, dict | None]:
@@ -374,6 +394,8 @@ def pruefe_shopseite(http: Http, shop: dict, max_preis: float) -> tuple[str, dic
     if r.status_code >= 400:
         raise QuellenFehler(f"HTTP {r.status_code}")
     seite = r.text
+    if r.history and _umgeleitet_auf_anderes(shop["url"], r.url):
+        return "Produkt nicht (mehr) gelistet – Shop leitet woanders hin", None
     pruefwort = str(shop.get("pruefwort") or "").strip()
     if pruefwort and pruefwort.lower() not in seite.lower():
         return "Produkt nicht (mehr) auf der Seite", None
@@ -393,6 +415,8 @@ def pruefe_shopseite(http: Http, shop: dict, max_preis: float) -> tuple[str, dic
     lieferbar = [p for v, p in angebote if v in VERFUEGBAR]
     vorbest = [p for v, p in angebote if v in VORBESTELLUNG]
     kandidaten, vorbestellung = (lieferbar, False) if lieferbar else (vorbest, True)
+    if lieferbar and re.search(r"vorbestellung möglich|vorbestellbar|jetzt vorbestellen", seite, re.I):
+        vorbestellung = True  # manche Shops melden "InStock", schreiben aber "Vorbestellung" dazu
     if not kandidaten:
         arten = sorted({v for v, _ in angebote})
         return f"nicht verfügbar ({', '.join(arten)})", None
@@ -539,7 +563,7 @@ def lauf(trocken: bool) -> int:
         except (requests.RequestException, QuellenFehler) as ex:
             quellen["obi"] = {"ok": False, "info": str(ex), "treffer": []}
 
-    shops = cfg.get("online_shops") or []
+    shops = [sh for sh in (cfg.get("online_shops") or []) if sh.get("aktiv", True)]
     if shops:
         log(f"Online-Shops: prüfe {len(shops)} Seiten …")
     for shop in shops:
@@ -613,6 +637,29 @@ def lauf(trocken: bool) -> int:
     return 0
 
 
+PBKDF2_RUNDEN = 310_000
+
+
+def verschluessele(klartext: bytes, passwort: str) -> dict:
+    """AES-256-GCM mit einem per PBKDF2-SHA256 aus dem Passwort abgeleiteten Schlüssel.
+
+    Das Format passt zur WebCrypto-Entschlüsselung in karte/index.html. Das Salz ist pro Repository fest,
+    damit ein im Browser gemerkter Schlüssel auch nach dem nächsten Lauf noch passt.
+    """
+    import base64
+    import hashlib
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+    salz = hashlib.sha256(("portasplit-radar:" + os.environ.get("GITHUB_REPOSITORY", "lokal")).encode()).digest()[:16]
+    schluessel = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salz, iterations=PBKDF2_RUNDEN).derive(passwort.encode("utf-8"))
+    iv = os.urandom(12)
+    ct = AESGCM(schluessel).encrypt(iv, klartext, None)
+    b64 = lambda b: base64.b64encode(b).decode("ascii")
+    return {"v": 1, "runden": PBKDF2_RUNDEN, "salz": b64(salz), "iv": b64(iv), "daten": b64(ct)}
+
+
 def karte(ausgabe: Path) -> int:
     """Deutschlandweite Übersicht für die Webseite: alle toom- und OBI-Märkte + Online-Shops.
 
@@ -677,7 +724,7 @@ def karte(ausgabe: Path) -> int:
         quellen.append({"name": kette, "ok": True, "info": info, "maerkte": len(ms), "mit_bestand": mit_bestand})
 
     shops_out, neue_shops = [], {}
-    for shop in cfg.get("online_shops") or []:
+    for shop in [sh for sh in (cfg.get("online_shops") or []) if sh.get("aktiv", True)]:
         alt = alt_shops.get(shop["name"], {})
         try:
             text, treffer = pruefe_shopseite(http, shop, max_preis)
@@ -707,7 +754,16 @@ def karte(ausgabe: Path) -> int:
         "shops": shops_out, "ereignisse": list(reversed(ereignisse)),
     }
     ausgabe.mkdir(parents=True, exist_ok=True)
-    (ausgabe / "daten.json").write_text(json.dumps(daten, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    klartext = json.dumps(daten, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    passwort = os.environ.get("KARTE_PASSWORT", "")
+    for alt in ("daten.json", "daten.enc.json"):
+        (ausgabe / alt).unlink(missing_ok=True)
+    if passwort:
+        (ausgabe / "daten.enc.json").write_text(json.dumps(verschluessele(klartext, passwort)), encoding="utf-8")
+        log("Daten verschlüsselt (Passwortschutz aktiv).")
+    else:
+        (ausgabe / "daten.json").write_bytes(klartext)
+        log("Hinweis: Kein KARTE_PASSWORT gesetzt – die Seite ist ohne Passwort für alle lesbar.")
     seite = BASIS / "karte" / "index.html"
     if seite.exists():
         (ausgabe / "index.html").write_text(seite.read_text(encoding="utf-8"), encoding="utf-8")

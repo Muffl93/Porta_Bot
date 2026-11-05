@@ -41,29 +41,36 @@ online_shops:
   - name: MediaMarkt
     url: https://www.mediamarkt.de/de/product/_midea-porta-split-klimaanlage-grau-max-raumgrosse-42-m-eek-a-142245268.html
     pruefwort: "142245268"
+    aktiv: false   # blockt Anfragen von GitHub (403/Captcha); lokal ggf. auf true setzen
   - name: Saturn
     url: https://www.saturn.de/de/product/_midea-porta-split-klimaanlage-grau-max-raumgrosse-42-m-eek-a-142245268.html
     pruefwort: "142245268"
+    aktiv: false   # blockt Anfragen von GitHub (403/Captcha); lokal ggf. auf true setzen
   - name: Hagebau
     url: https://www.hagebau.de/p/midea-klimaanlage-portasplit-anP7004600334/
     pruefwort: "4048164116478"
   - name: Euronics
     url: https://www.euronics.de/haus-und-haushalt/heizen-lueften-kuehlen/kuehlen/split-klimageraete/porta-split-split-klimageraet-4065327878899
     pruefwort: "4048164116478"
+    aktiv: false   # blockt Anfragen von GitHub (403/Captcha); lokal ggf. auf true setzen
   - name: Amazon
     url: https://www.amazon.de/dp/B0D3PP64JS
     typ: amazon
+    aktiv: false   # blockt Anfragen von GitHub (403/Captcha); lokal ggf. auf true setzen
   - name: Amazon (2)
     url: https://www.amazon.de/dp/B0GX16LKSC
     typ: amazon
+    aktiv: false   # blockt Anfragen von GitHub (403/Captcha); lokal ggf. auf true setzen
   - name: Klimaworld
     url: https://www.klimaworld.com/products/midea-portasplit-mobile-split-klimaanlage-3-5-kw30038
   - name: Solarprofi-24
     url: https://shop.solarprofi-24.de/haustechnik/7212/midea-mobiles-split-klimageraet-porta-split-3-5-kw-r-32-raumklimageraet-4-in-1-komfort
+    aktiv: false   # Link tot (404)
   - name: Tecedo
     url: https://www.tecedo.de/midea-porta-split-klimageraet-203567.html
   - name: Klimafy
     url: https://klimafy.de/a/midea-portasplit-klimageraet-diy-mobile-split-klimaanlage-12k-eek-a-a/9894907/
+    aktiv: false   # blockt Anfragen von GitHub (403/Captcha); lokal ggf. auf true setzen
   - name: Entratek
     url: https://www.entratek-shop.de/p/midea-portasplit-klimaanlage-mobile-waermepumpe-kuehlen-a-heizen-a-12000-btu-3-5kw
   - name: Selfio
@@ -80,10 +87,13 @@ online_shops:
     url: https://www.schwab-klima.de/product-page/midea-portasplit-mobiles-klimager%C3%A4t-3-5kw
   - name: Prosatech
     url: https://prosatech.de/Mobile-Klimaanlage-Midea-PortaSplit-35kw
+    aktiv: false   # keine auswertbaren Daten
   - name: Mediadeal
     url: https://www.mediadeal.de/haus-garten/haustechnik/klimageraete/19421/midea-porta-split-klimageraet-3.500w
+    aktiv: false   # Produkt nicht mehr gelistet
   - name: GR Solar
     url: https://gr-solar.de/produkt/midea-portasplit-klimaanlage-35-kw
+    aktiv: false   # Link tot (404)
   - name: tado Shop
     url: https://shop.tado.com/products/midea-portasplit-mobile-split-air-conditioner-3-5-kw-tado-smart-ac-control-v3
   # Bekannte Links, die am 05.11.2026 nicht mehr funktionierten (404) bzw.
