@@ -1,0 +1,61 @@
+name: PortaSplit-Karte
+
+on:
+  schedule:
+    - cron: "5,35 * * * *"   # etwa alle 30 Minuten
+  workflow_dispatch:          # zusätzlich per Knopfdruck unter "Actions" startbar
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: portasplit-karte
+  cancel-in-progress: false
+
+jobs:
+  karte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.veroeffentlichen.outputs.page_url }}
+    env:
+      ZUSTAND_ORDNER: .karte-zustand
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Verlauf ("zuletzt vorrätig", "Zuletzt aufgetaucht") liegt im internen Cache von GitHub.
+      - name: Verlauf laden
+        uses: actions/cache/restore@v4
+        with:
+          path: .karte-zustand
+          key: karte-${{ github.run_id }}
+          restore-keys: karte-
+
+      # Deutschlandweit, ohne Standort – die Seite berechnet Entfernungen im Browser.
+      - name: Alle Märkte prüfen
+        run: python checker.py --karte _site
+
+      - name: Verlauf speichern
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .karte-zustand
+          key: karte-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Webseite veröffentlichen
+        id: veroeffentlichen
+        uses: actions/deploy-pages@v4
