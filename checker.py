@@ -6,6 +6,7 @@ Aufruf:
     python checker.py --trocken       nur prüfen und anzeigen, nichts senden/speichern
     python checker.py --test-telegram Testnachricht an Telegram schicken
     python checker.py --chat-id       deine Telegram-Chat-ID anzeigen (vorher dem Bot schreiben)
+    python checker.py --karte _site   deutschlandweite Übersichtsseite erzeugen
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -241,9 +242,11 @@ def im_umkreis(maerkte: list[dict], lat, lon, umkreis: float) -> list[dict]:
 # Quellen
 # ---------------------------------------------------------------------------
 
-def pruefe_toom(http: Http, maerkte: list[dict], artikel: list[str]) -> list[dict]:
-    treffer, fehler, erfolge = [], 0, 0
-    body =[{"articleId": a, "quantity": 10, "deliveryType": "marketPickup_marketPickup"} for a in artikel]
+def toom_bestaende(http: Http, maerkte: list[dict], artikel: list[str]) -> dict[tuple, int | None]:
+    """Bestand je (Markt-ID, Artikel). None = Abfrage für diesen Markt fehlgeschlagen."""
+    out: dict[tuple, int | None] = {}
+    fehler, erfolge = 0, 0
+    body = [{"articleId": a, "quantity": 10, "deliveryType": "marketPickup_marketPickup"} for a in artikel]
     for m in maerkte:
         cookies = {"market_id": str(m["id"]), "market_name": quote(m["name"])}
         try:
@@ -255,43 +258,70 @@ def pruefe_toom(http: Http, maerkte: list[dict], artikel: list[str]) -> list[dic
             log(f"  toom-Markt: {e}" if oeffentlich() else f"  toom {m['name']}: {e}")
             if fehler >= 5 and erfolge == 0:  # früh abbrechen, wenn von Anfang an alles scheitert
                 raise QuellenFehler(f"toom: {e}")
+            for a in artikel:
+                out[(m["id"], a)] = None
             continue
         erfolge += 1
+        for a in artikel:
+            out[(m["id"], a)] = 0
         for x in daten if isinstance(daten, list) else []:
-            menge = int(x.get("availableQuantity") or 0)
-            if menge > 0:
-                sku = str(x.get("articleId"))
-                treffer.append({
-                    "key": f"toom:{m['id']}:{sku}", "quelle": "toom", "haendler": f"toom {m['name']}",
-                    "art": "Markt", "menge": menge, "menge_text": "10+" if menge >= 10 else str(menge),
-                    "adresse": f"{m['strasse']}, {m['plz']} {m['ort']}", "telefon": m["telefon"],
-                    "entfernung": m.get("entfernung"), "url": f"{TOOM}/s/{sku}", "markt_url": m["link"], "preis": None,
-                })
-    if fehler and fehler == len(maerkte):
+            out[(m["id"], str(x.get("articleId")))] = int(x.get("availableQuantity") or 0)
+    if maerkte and erfolge == 0:
         raise QuellenFehler("toom: alle Märkte fehlgeschlagen")
-    return treffer
+    return out
 
 
-def pruefe_obi(http: Http, maerkte: list[dict], artikel: list[str]) -> list[dict]:
-    treffer = []
-    nach_id = {m["id"]: m for m in maerkte}
-    ids = list(nach_id)
+def obi_bestaende(http: Http, maerkte: list[dict], artikel: list[str], streng: bool = True) -> dict[tuple, int | None]:
+    """Bestand je (Markt-Nummer, Artikel). streng=True: jeder Fehler bricht ab."""
+    out: dict[tuple, int | None] = {}
+    ids = [m["id"] for m in maerkte]
+    fehler, erfolge = 0, 0
     for sku in artikel:
         for i in range(0, len(ids), 10):  # OBI erlaubt max. 10 Märkte pro Anfrage
             teil = ids[i:i + 10]
-            r = http.get(f"{OBI}/api/pdp/v1/stock/{sku}?storeIds={','.join(teil)}", "obi", headers={"Accept": "application/json"})
-            daten = json_antwort(r, "OBI Bestand")
+            try:
+                r = http.get(f"{OBI}/api/pdp/v1/stock/{sku}?storeIds={','.join(teil)}", "obi", headers={"Accept": "application/json"})
+                daten = json_antwort(r, "OBI Bestand")
+            except (requests.RequestException, QuellenFehler) as e:
+                if streng:
+                    raise QuellenFehler(str(e))
+                fehler += 1
+                if fehler >= 3 and erfolge == 0:
+                    raise QuellenFehler(str(e))
+                for mid in teil:
+                    out[(mid, sku)] = None
+                continue
+            erfolge += 1
+            for mid in teil:
+                out[(mid, sku)] = 0
             for x in daten if isinstance(daten, list) else []:
-                menge = int(x.get("availableQuantity") or 0)
-                m = nach_id.get(str(x.get("storeId")))
-                if menge > 0 and m:
-                    treffer.append({
-                        "key": f"obi:{m['id']}:{sku}", "quelle": "obi", "haendler": f"OBI {m['name']}",
-                        "art": "Markt", "menge": menge, "menge_text": str(menge),
-                        "adresse": f"{m['strasse']}, {m['plz']} {m['ort']}", "telefon": m["telefon"],
-                        "entfernung": m.get("entfernung"), "url": f"{OBI}/p/{sku}", "markt_url": m["link"], "preis": None,
-                    })
-    return treffer
+                out[(str(x.get("storeId")), sku)] = int(x.get("availableQuantity") or 0)
+    return out
+
+
+def markt_treffer(kette: str, m: dict, sku: str, menge: int) -> dict:
+    if kette == "toom":
+        haendler, url = f"toom {m['name']}", f"{TOOM}/s/{sku}"
+    else:
+        haendler, url = f"OBI {m['name']}", f"{OBI}/p/{sku}"
+    return {
+        "key": f"{kette}:{m['id']}:{sku}", "quelle": kette, "haendler": haendler,
+        "art": "Markt", "menge": menge, "menge_text": "10+" if (kette == "toom" and menge >= 10) else str(menge),
+        "adresse": f"{m['strasse']}, {m['plz']} {m['ort']}", "telefon": m["telefon"],
+        "entfernung": m.get("entfernung"), "url": url, "markt_url": m["link"], "preis": None,
+    }
+
+
+def pruefe_toom(http: Http, maerkte: list[dict], artikel: list[str]) -> list[dict]:
+    nach_id = {m["id"]: m for m in maerkte}
+    return [markt_treffer("toom", nach_id[mid], sku, n)
+            for (mid, sku), n in toom_bestaende(http, maerkte, artikel).items() if n and mid in nach_id]
+
+
+def pruefe_obi(http: Http, maerkte: list[dict], artikel: list[str]) -> list[dict]:
+    nach_id = {m["id"]: m for m in maerkte}
+    return [markt_treffer("obi", nach_id[mid], sku, n)
+            for (mid, sku), n in obi_bestaende(http, maerkte, artikel).items() if n and mid in nach_id]
 
 
 LD_RE = re.compile(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', re.S | re.I)
@@ -583,6 +613,111 @@ def lauf(trocken: bool) -> int:
     return 0
 
 
+def karte(ausgabe: Path) -> int:
+    """Deutschlandweite Übersicht für die Webseite: alle toom- und OBI-Märkte + Online-Shops.
+
+    Schreibt <ausgabe>/daten.json und kopiert karte/index.html dazu. Enthält keine Standortdaten des Nutzers;
+    Entfernungen berechnet die Webseite im Browser.
+    """
+    cfg = yaml.safe_load(CONFIG_DATEI.read_text(encoding="utf-8")) or {}
+    max_preis = float(cfg.get("max_preis") or 0)
+    http = Http()
+    verlauf_datei = zustand_ordner() / "verlauf.json"
+    verlauf = lade_json(verlauf_datei, {})
+    alt_maerkte: dict = verlauf.get("maerkte", {})
+    alt_shops: dict = verlauf.get("shops", {})
+    ereignisse: list = verlauf.get("ereignisse", [])
+    zeit = jetzt().isoformat(timespec="seconds")
+
+    neue_maerkte: dict = {}
+    quellen = []
+    ketten = [
+        ("toom", cfg.get("toom") or {}, toom_maerkte, toom_bestaende, ["9350668"], f"{TOOM}/s/"),
+        ("obi", cfg.get("obi") or {}, obi_maerkte, lambda h, m, a: obi_bestaende(h, m, a, streng=False), ["8620890"], f"{OBI}/p/"),
+    ]
+    produkte = {}
+    for kette, kcfg, lade, bestand_fn, std_artikel, produkt_basis in ketten:
+        if not kcfg.get("aktiv", True):
+            continue
+        artikel = [str(a) for a in kcfg.get("artikel", std_artikel)]
+        produkte[kette] = produkt_basis + artikel[0]
+        try:
+            ms = lade(http)
+            log(f"{kette}: prüfe alle {len(ms)} Märkte …")
+            best = bestand_fn(http, ms, artikel)
+        except (requests.RequestException, QuellenFehler) as ex:
+            quellen.append({"name": kette, "ok": False, "info": str(ex)})
+            for k, v in alt_maerkte.items():  # letzte bekannte Daten behalten
+                if k.startswith(kette + ":"):
+                    neue_maerkte[k] = v
+            continue
+        mit_bestand, unbekannt = 0, 0
+        for m in ms:
+            key = f"{kette}:{m['id']}"
+            werte = [best.get((m["id"], a)) for a in artikel]
+            menge = sum(w for w in werte if w) if any(w for w in werte) else (None if None in werte else 0)
+            alt = alt_maerkte.get(key, {})
+            eintrag = {
+                "kette": kette, "id": m["id"], "name": m["name"], "strasse": m["strasse"], "plz": m["plz"], "ort": m["ort"],
+                "lat": m["lat"], "lon": m["lon"], "telefon": m["telefon"], "link": m["link"],
+                "bestand": menge if menge is not None else alt.get("bestand"),
+                "geprueft": zeit if menge is not None else alt.get("geprueft"),
+                "zuletzt_bestand": alt.get("zuletzt_bestand"), "zuletzt_menge": alt.get("zuletzt_menge"),
+            }
+            if menge is None:
+                unbekannt += 1
+            elif menge > 0:
+                mit_bestand += 1
+                eintrag["zuletzt_bestand"], eintrag["zuletzt_menge"] = zeit, menge
+                if not alt.get("bestand"):
+                    ereignisse.append({"zeit": zeit, "art": "markt", "kette": kette, "key": key, "name": m["name"],
+                                       "ort": m["ort"], "plz": m["plz"], "lat": m["lat"], "lon": m["lon"], "menge": menge})
+            neue_maerkte[key] = eintrag
+        info = f"{len(ms)} Märkte geprüft" + (f", {unbekannt} ohne Antwort" if unbekannt else "")
+        quellen.append({"name": kette, "ok": True, "info": info, "maerkte": len(ms), "mit_bestand": mit_bestand})
+
+    shops_out, neue_shops = [], {}
+    for shop in cfg.get("online_shops") or []:
+        alt = alt_shops.get(shop["name"], {})
+        try:
+            text, treffer = pruefe_shopseite(http, shop, max_preis)
+            ok = True
+        except QuellenFehler as ex:
+            text, treffer, ok = f"Fehler: {ex}", None, False
+        eintrag = {"name": shop["name"], "url": shop["url"], "status": text, "ok": ok,
+                   "verfuegbar": bool(treffer), "preis": treffer["preis"] if treffer else None,
+                   "vorbestellung": bool(treffer and treffer.get("vorbestellung")),
+                   "zuletzt_verfuegbar": zeit if treffer else alt.get("zuletzt_verfuegbar")}
+        if treffer and not alt.get("verfuegbar"):
+            ereignisse.append({"zeit": zeit, "art": "online", "name": shop["name"], "url": shop["url"], "preis": eintrag["preis"]})
+        if not ok:  # bei Fehlern den letzten Verfügbarkeitsstand behalten
+            eintrag["verfuegbar"] = alt.get("verfuegbar", False)
+        neue_shops[shop["name"]] = eintrag
+        shops_out.append(eintrag)
+
+    # Ereignisse: nur die letzten 30 Tage, höchstens 200
+    grenze = (jetzt() - timedelta(days=30)).isoformat(timespec="seconds")
+    ereignisse = [e for e in ereignisse if e.get("zeit", "") >= grenze][-200:]
+
+    schreibe_json(verlauf_datei, {"maerkte": neue_maerkte, "shops": neue_shops, "ereignisse": ereignisse})
+
+    daten = {
+        "aktualisiert": zeit, "max_preis": max_preis, "produkte": produkte, "quellen": quellen,
+        "maerkte": sorted(neue_maerkte.values(), key=lambda m: (m["kette"], m["plz"])),
+        "shops": shops_out, "ereignisse": list(reversed(ereignisse)),
+    }
+    ausgabe.mkdir(parents=True, exist_ok=True)
+    (ausgabe / "daten.json").write_text(json.dumps(daten, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    seite = BASIS / "karte" / "index.html"
+    if seite.exists():
+        (ausgabe / "index.html").write_text(seite.read_text(encoding="utf-8"), encoding="utf-8")
+    for q in quellen:
+        log(f"  {'✔' if q['ok'] else '✖'} {q['name']}: {q['info']}" + (f" → {q['mit_bestand']} mit Bestand" if q.get("mit_bestand") else ""))
+    log(f"Online-Shops: {sum(1 for s in shops_out if s['verfuegbar'])} von {len(shops_out)} verfügbar (unter Preisgrenze)")
+    log(f"Webseite geschrieben nach {ausgabe}")
+    return 0
+
+
 def zeige_chat_id() -> int:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -614,10 +749,13 @@ def main() -> int:
     p.add_argument("--trocken", action="store_true", help="nur prüfen und anzeigen, nichts senden/speichern")
     p.add_argument("--test-telegram", action="store_true", help="Testnachricht senden")
     p.add_argument("--chat-id", action="store_true", help="Telegram-Chat-ID anzeigen")
+    p.add_argument("--karte", metavar="ORDNER", help="deutschlandweite Übersichtsseite in ORDNER erzeugen")
     a = p.parse_args()
     lade_geheimnisse()
     if a.chat_id:
         return zeige_chat_id()
+    if a.karte:
+        return karte(Path(a.karte))
     if a.test_telegram:
         telegram("✅ <b>PortaSplit-Bot</b>: Telegram funktioniert! Du bekommst hier eine Nachricht, sobald eine PortaSplit auftaucht.")
         log("Testnachricht gesendet.")

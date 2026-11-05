@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PortaSplit-Radar</title>
+<meta name="description" content="Wo ist die Midea PortaSplit 12.000 BTU gerade vorrätig? toom- und OBI-Märkte in ganz Deutschland plus Online-Shops.">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --text: #17202a; --muted: #5d6b7a; --line: #e1e6eb;
+    --ok: #138a4a; --ok-bg: #e3f4ea; --warn: #9a5b00; --warn-bg: #fff1dc; --bad: #b42318; --bad-bg: #fdeceb;
+    --accent: #0b63c4; --accent-bg: #e6f0fb; --gray: #9aa5b1; --shadow: 0 1px 2px rgba(16,24,40,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1216; --card: #161c22; --text: #e5e9ee; --muted: #93a0ad; --line: #27303a;
+      --ok: #45c47b; --ok-bg: #11301f; --warn: #f0a43c; --warn-bg: #33240d; --bad: #f2786d; --bad-bg: #3a1714;
+      --accent: #5ea8f2; --accent-bg: #13263a; --gray: #5e6b78; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 1.6rem; margin: 0; letter-spacing: -.01em; }
+  h2 { font-size: .8rem; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .sub { color: var(--muted); margin: 2px 0 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  .pad { padding: 14px 16px; }
+
+  .controls { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 12px; }
+  .controls input[type=text] { flex: 1 1 180px; min-width: 0; }
+  input[type=text], select, button { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  button { cursor: pointer; background: var(--card); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .chk { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); user-select: none; }
+  .standort-info { width: 100%; color: var(--muted); font-size: .88rem; }
+
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+  .tile { padding: 12px 16px; }
+  .tile .zahl { font-size: 1.7rem; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .tile .lbl { color: var(--muted); font-size: .88rem; }
+  .tile.gut .zahl { color: var(--ok); }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; align-items: start; }
+  #karte { height: 560px; border-radius: 12px; border: 1px solid var(--line); z-index: 0; }
+  .liste { max-height: 560px; overflow: auto; }
+  .eintrag { padding: 10px 16px; border-top: 1px solid var(--line); cursor: pointer; }
+  .eintrag:first-child { border-top: 0; }
+  .eintrag:hover { background: var(--bg); }
+  .eintrag .kopf { display: flex; justify-content: space-between; gap: 8px; }
+  .eintrag .name { font-weight: 600; }
+  .muted { color: var(--muted); font-size: .88rem; }
+  .leer { padding: 14px 16px; color: var(--muted); }
+
+  .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .8rem; white-space: nowrap; font-weight: 550; }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.bad { background: var(--bad-bg); color: var(--bad); }
+  .pill.neutral { background: var(--bg); color: var(--muted); }
+  .kette { display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .04em; padding: 0 6px; border-radius: 4px; margin-right: 6px; vertical-align: 1px; }
+  .kette.toom { background: #e30613; color: #fff; }
+  .kette.obi { background: #ff7e21; color: #fff; }
+
+  .unten { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; align-items: start; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 8px 16px; border-top: 1px solid var(--line); vertical-align: top; }
+  tr:first-child td { border-top: 0; }
+  a { color: var(--accent); }
+  .legende { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: .85rem; margin-top: 8px; }
+  .punkt { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  footer { margin-top: 24px; color: var(--muted); font-size: .82rem; }
+  #shops .pill { white-space: normal; text-align: center; }
+  .leaflet-popup-content { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin: 12px 14px; }
+  .leaflet-popup-content b { font-size: 15px; }
+
+  @media (max-width: 900px) {
+    .layout, .unten { grid-template-columns: minmax(0, 1fr); }
+    #karte { height: 420px; }
+    .liste { max-height: none; }
+  }
+  @media (max-width: 560px) {
+    .tiles { grid-template-columns: 1fr 1fr; }
+    .tiles .tile:last-child { grid-column: span 2; }
+    #karte { height: 360px; }
+    h1 { font-size: 1.35rem; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>PortaSplit-Radar</h1>
+      <p class="sub">Midea PortaSplit 12.000 BTU · <span id="stand">lädt …</span></p>
+    </div>
+  </header>
+
+  <div class="card controls">
+    <input type="text" id="ort" placeholder="PLZ oder Ort, z. B. 10115" aria-label="PLZ oder Ort" autocomplete="postal-code">
+    <button class="primary" id="suchen">Suchen</button>
+    <button id="geo" title="Standort des Geräts verwenden">📍 Mein Standort</button>
+    <select id="umkreis" aria-label="Umkreis">
+      <option value="10">10 km</option><option value="25">25 km</option><option value="50" selected>50 km</option>
+      <option value="100">100 km</option><option value="200">200 km</option><option value="0">ganz Deutschland</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="f-toom" checked> toom</label>
+    <label class="chk"><input type="checkbox" id="f-obi" checked> OBI</label>
+    <label class="chk"><input type="checkbox" id="f-bestand"> nur mit Bestand</label>
+    <div class="standort-info" id="standort-info">Gib deine PLZ ein, um Entfernungen zu sehen. Der Standort wird nur in deinem Browser gespeichert.</div>
+  </div>
+
+  <div class="tiles">
+    <div class="card tile" id="t-de"><div class="zahl">–</div><div class="lbl">Märkte mit Bestand in Deutschland</div></div>
+    <div class="card tile" id="t-umkreis"><div class="zahl">–</div><div class="lbl">im Umkreis</div></div>
+    <div class="card tile" id="t-naechster"><div class="zahl">–</div><div class="lbl">nächster Markt mit Bestand</div></div>
+  </div>
+
+  <div class="layout">
+    <div>
+      <div id="karte" role="region" aria-label="Karte der Märkte"></div>
+      <div class="legende">
+        <span><span class="punkt" style="background:var(--ok)"></span>vorrätig</span>
+        <span><span class="punkt" style="background:var(--warn)"></span>in den letzten 48 h vorrätig</span>
+        <span><span class="punkt" style="background:var(--gray)"></span>kein Bestand</span>
+      </div>
+    </div>
+    <div class="card liste">
+      <div class="pad" style="padding-bottom:6px"><h2 id="liste-titel">Mit Bestand</h2></div>
+      <div id="liste"></div>
+    </div>
+  </div>
+
+  <div class="unten">
+    <div class="card">
+      <div class="pad" style="padding-bottom:6px"><h2>Zuletzt aufgetaucht</h2></div>
+      <div id="feed"></div>
+    </div>
+    <div class="card">
+      <div class="pad" style="padding-bottom:6px"><h2>Online-Shops</h2></div>
+      <table id="shops"></table>
+    </div>
+  </div>
+
+  <footer id="fuss">Daten werden etwa alle 30 Minuten aktualisiert. Marktbestände ändern sich schnell – vor der Fahrt anrufen. Karte © OpenStreetMap-Mitwirkende.</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+const euro = p => p == null ? "" : p.toLocaleString("de-DE", {style: "currency", currency: "EUR"});
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+function speicher(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
+
+function vor(iso) {
+  if (!iso) return "–";
+  const s = (Date.now() - new Date(iso)) / 1000;
+  if (s < 90) return "gerade eben";
+  if (s < 3600) return `vor ${Math.round(s / 60)} Min.`;
+  if (s < 86400) return `vor ${Math.round(s / 3600)} Std.`;
+  const t = Math.round(s / 86400);
+  return t === 1 ? "vor 1 Tag" : `vor ${t} Tagen`;
+}
+
+function km(a, b, c, d) {
+  if ([a, b, c, d].some(x => x == null)) return null;
+  const r = 6371, p = Math.PI / 180;
+  const x = Math.sin((c - a) * p / 2) ** 2 + Math.cos(a * p) * Math.cos(c * p) * Math.sin((d - b) * p / 2) ** 2;
+  return 2 * r * Math.asin(Math.sqrt(x));
+}
+
+// ---------- Zustand ----------
+let daten = null;
+let heim = speicher("pr_heim");               // {lat, lon, label}
+const opt = Object.assign({umkreis: 50, toom: true, obi: true, bestand: false}, speicher("pr_opt") || {});
+$("umkreis").value = String(opt.umkreis);
+$("f-toom").checked = opt.toom; $("f-obi").checked = opt.obi; $("f-bestand").checked = opt.bestand;
+
+// ---------- Karte ----------
+const karte = L.map("karte", {zoomControl: true, scrollWheelZoom: true}).setView([51.2, 10.4], 6);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 18, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende'
+}).addTo(karte);
+const ebene = L.layerGroup().addTo(karte);
+let heimMarker = null, kreis = null;
+const marker = new Map();
+
+function farbe(m) {
+  if (m.bestand > 0) return css("--ok");
+  if (m.zuletzt_bestand && Date.now() - new Date(m.zuletzt_bestand) < 48 * 3600e3) return css("--warn");
+  return css("--gray");
+}
+
+function popup(m) {
+  const kette = m.kette === "toom" ? "toom" : "OBI";
+  const prod = daten.produkte?.[m.kette];
+  const best = m.bestand > 0 ? `<span class="pill ok">${m.bestand >= 10 && m.kette === "toom" ? "10+" : m.bestand} Stück vorrätig</span>`
+    : m.bestand === 0 ? `<span class="pill neutral">kein Bestand</span>` : `<span class="pill bad">unbekannt</span>`;
+  return `<span class="kette ${m.kette}">${kette}</span><b>${esc(m.name)}</b><br>
+    ${esc(m.strasse)}, ${esc(m.plz)} ${esc(m.ort)}<br>
+    ${m.telefon ? `☎ <a href="tel:${esc(m.telefon.replace(/[^0-9+]/g, ""))}">${esc(m.telefon)}</a><br>` : ""}
+    <div style="margin:6px 0">${best}</div>
+    ${m._km != null ? `${Math.round(m._km)} km entfernt · ` : ""}${m.zuletzt_bestand ? `zuletzt vorrätig ${vor(m.zuletzt_bestand)}` : "noch nie vorrätig gesehen"}<br>
+    <span class="muted">geprüft ${vor(m.geprueft)}</span><br>
+    <a href="${esc(m.link)}" target="_blank" rel="noopener">Markt-Seite</a>${prod ? ` · <a href="${esc(prod)}" target="_blank" rel="noopener">Produkt</a>` : ""}`;
+}
+
+// ---------- Darstellung ----------
+function sichtbar(m) {
+  if (m.kette === "toom" && !opt.toom) return false;
+  if (m.kette === "obi" && !opt.obi) return false;
+  if (opt.bestand && !(m.bestand > 0)) return false;
+  return true;
+}
+function imUmkreis(m) { return !heim || !opt.umkreis || (m._km != null && m._km <= opt.umkreis); }
+
+function zeichne() {
+  if (!daten) return;
+  const ms = daten.maerkte;
+  ms.forEach(m => { m._km = heim ? km(heim.lat, heim.lon, m.lat, m.lon) : null; });
+
+  ebene.clearLayers(); marker.clear();
+  // graue zuerst, damit grüne obenauf liegen
+  [...ms].sort((a, b) => (a.bestand > 0) - (b.bestand > 0)).forEach(m => {
+    if (!sichtbar(m) || m.lat == null) return;
+    const aktiv = m.bestand > 0;
+    const mk = L.circleMarker([m.lat, m.lon], {
+      radius: aktiv ? 9 : 5, weight: aktiv ? 2 : 1, color: aktiv ? "#fff" : farbe(m), fillColor: farbe(m),
+      fillOpacity: aktiv ? 1 : (imUmkreis(m) ? .85 : .35), opacity: aktiv ? 1 : .9
+    }).bindPopup(() => popup(m));
+    mk.addTo(ebene); marker.set(m.kette + ":" + m.id, mk);
+  });
+
+  if (heimMarker) { heimMarker.remove(); heimMarker = null; }
+  if (kreis) { kreis.remove(); kreis = null; }
+  if (heim) {
+    heimMarker = L.marker([heim.lat, heim.lon], {title: "Dein Standort"}).addTo(karte).bindPopup("Dein Standort");
+    if (opt.umkreis) kreis = L.circle([heim.lat, heim.lon], {radius: opt.umkreis * 1000, color: css("--accent"), weight: 1.5, fillOpacity: .04}).addTo(karte);
+  }
+
+  // Kacheln
+  const alleMit = ms.filter(m => m.bestand > 0 && sichtbar(m));
+  const mitUmkreis = alleMit.filter(imUmkreis);
+  $("t-de").querySelector(".zahl").textContent = alleMit.length;
+  $("t-de").classList.toggle("gut", alleMit.length > 0);
+  const tu = $("t-umkreis");
+  tu.querySelector(".zahl").textContent = heim ? mitUmkreis.length : "–";
+  tu.querySelector(".lbl").textContent = heim ? (opt.umkreis ? `im Umkreis von ${opt.umkreis} km` : "mit Entfernung (ganz Deutschland)") : "im Umkreis (Standort eingeben)";
+  tu.classList.toggle("gut", heim && mitUmkreis.length > 0);
+  const naechster = heim ? [...alleMit].sort((a, b) => a._km - b._km)[0] : null;
+  const tn = $("t-naechster");
+  tn.querySelector(".zahl").textContent = naechster ? `${Math.round(naechster._km)} km` : "–";
+  tn.querySelector(".lbl").textContent = naechster ? `nächster Markt mit Bestand: ${naechster.kette === "toom" ? "toom" : "OBI"} ${naechster.name}` : "nächster Markt mit Bestand";
+
+  // Liste
+  const liste = (heim ? mitUmkreis : alleMit).sort((a, b) => heim ? a._km - b._km : (a.plz > b.plz ? 1 : -1));
+  $("liste-titel").textContent = heim && opt.umkreis ? `Mit Bestand im Umkreis (${liste.length})` : `Mit Bestand (${liste.length})`;
+  $("liste").innerHTML = liste.length ? liste.map(m => `
+    <div class="eintrag" data-key="${esc(m.kette + ":" + m.id)}" tabindex="0">
+      <div class="kopf"><span class="name"><span class="kette ${m.kette}">${m.kette === "toom" ? "toom" : "OBI"}</span>${esc(m.name)}</span>
+      <span class="pill ok">${m.bestand >= 10 && m.kette === "toom" ? "10+" : m.bestand} Stk.</span></div>
+      <div class="muted">${m._km != null ? Math.round(m._km) + " km · " : ""}${esc(m.plz)} ${esc(m.ort)}${m.telefon ? " · ☎ " + esc(m.telefon) : ""}</div>
+    </div>`).join("")
+    : `<div class="leer">${heim && opt.umkreis ? "Gerade kein Markt in deinem Umkreis mit Bestand. Vergrößere den Umkreis oder schau in „Zuletzt aufgetaucht“." : "Gerade nirgends vorrätig."}</div>`;
+  document.querySelectorAll(".eintrag").forEach(el => {
+    const oeffne = () => { const mk = marker.get(el.dataset.key); if (mk) { karte.setView(mk.getLatLng(), 12); mk.openPopup(); } };
+    el.addEventListener("click", oeffne);
+    el.addEventListener("keydown", ev => { if (ev.key === "Enter") oeffne(); });
+  });
+
+  // Feed
+  const feed = (daten.ereignisse || []).filter(e => e.art === "online" || (e.kette === "toom" ? opt.toom : opt.obi)).slice(0, 25);
+  $("feed").innerHTML = feed.length ? feed.map(e => {
+    if (e.art === "online") return `<div class="eintrag" style="cursor:default"><div class="kopf"><span class="name">${esc(e.name)} <span class="muted">online</span></span><span class="muted">${vor(e.zeit)}</span></div>
+      <div class="muted">${e.preis ? euro(e.preis) + " · " : ""}<a href="${esc(e.url)}" target="_blank" rel="noopener">zum Shop</a></div></div>`;
+    const d = heim ? km(heim.lat, heim.lon, e.lat, e.lon) : null;
+    return `<div class="eintrag" data-key="${esc(e.key)}" tabindex="0"><div class="kopf"><span class="name"><span class="kette ${e.kette}">${e.kette === "toom" ? "toom" : "OBI"}</span>${esc(e.name)}</span><span class="muted">${vor(e.zeit)}</span></div>
+      <div class="muted">${d != null ? Math.round(d) + " km · " : ""}${esc(e.plz)} ${esc(e.ort)} · ${e.menge} Stk.</div></div>`;
+  }).join("") : `<div class="leer">In den letzten 30 Tagen ist nichts neu aufgetaucht.</div>`;
+  document.querySelectorAll("#feed .eintrag[data-key]").forEach(el => el.addEventListener("click", () => {
+    const mk = marker.get(el.dataset.key); if (mk) { karte.setView(mk.getLatLng(), 12); mk.openPopup(); }
+  }));
+
+  // Shops
+  $("shops").innerHTML = (daten.shops || []).map(s => {
+    const t = s.status.toLowerCase();
+    let cls = "neutral";
+    if (s.verfuegbar) cls = "ok"; else if (!s.ok) cls = "bad"; else if (t.includes("zu teuer") || t.includes("404") || t.includes("nicht (mehr)")) cls = "warn";
+    return `<tr><td><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.name)}</a>${s.zuletzt_verfuegbar && !s.verfuegbar ? `<div class="muted">zuletzt verfügbar ${vor(s.zuletzt_verfuegbar)}</div>` : ""}</td>
+      <td style="text-align:right"><span class="pill ${cls}">${esc(s.status)}</span></td></tr>`;
+  }).join("") || `<tr><td class="muted">Keine Daten.</td></tr>`;
+
+  // Stand + Quellen
+  $("stand").textContent = `Stand ${vor(daten.aktualisiert)} (${new Date(daten.aktualisiert).toLocaleString("de-DE", {dateStyle: "short", timeStyle: "short"})})`;
+  const q = (daten.quellen || []).map(q => `${q.name === "obi" ? "OBI" : "toom"}: ${q.ok ? esc(q.info) : "Fehler – " + esc(q.info)}`).join(" · ");
+  $("fuss").innerHTML = `${q ? q + "<br>" : ""}Daten werden etwa alle 30 Minuten aktualisiert${daten.max_preis ? `; Online-Angebote über ${euro(daten.max_preis)} gelten als zu teuer` : ""}. Marktbestände ändern sich schnell – vor der Fahrt anrufen. Karte © OpenStreetMap-Mitwirkende.`;
+}
+
+function setzeHeim(lat, lon, label) {
+  heim = {lat, lon, label};
+  speicher("pr_heim", heim);
+  $("standort-info").textContent = `Standort: ${label} – nur in deinem Browser gespeichert.`;
+  zeichne();
+  if (opt.umkreis && kreis) karte.fitBounds(kreis.getBounds(), {padding: [10, 10]});
+  else karte.setView([lat, lon], 9);
+}
+
+// ---------- Bedienung ----------
+async function suche() {
+  const q = $("ort").value.trim();
+  if (!q) return;
+  $("standort-info").textContent = "Suche …";
+  try {
+    const plz = /^\d{5}$/.test(q);
+    const url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=de&" +
+      (plz ? `postalcode=${encodeURIComponent(q)}` : `q=${encodeURIComponent(q)}`);
+    const r = await fetch(url, {headers: {"Accept-Language": "de"}});
+    const j = await r.json();
+    if (!j.length) { $("standort-info").textContent = `„${q}“ nicht gefunden.`; return; }
+    const name = j[0].display_name.split(",").slice(0, 2).join(",");
+    setzeHeim(+j[0].lat, +j[0].lon, plz ? `${q} (${name})` : name);
+  } catch (e) {
+    $("standort-info").textContent = "Suche fehlgeschlagen. Versuch es mit „📍 Mein Standort“.";
+  }
+}
+$("suchen").addEventListener("click", suche);
+$("ort").addEventListener("keydown", e => { if (e.key === "Enter") suche(); });
+$("geo").addEventListener("click", () => {
+  if (!navigator.geolocation) { $("standort-info").textContent = "Dein Browser kann den Standort nicht bestimmen."; return; }
+  $("standort-info").textContent = "Bestimme Standort …";
+  navigator.geolocation.getCurrentPosition(
+    p => setzeHeim(p.coords.latitude, p.coords.longitude, "aktueller Standort"),
+    () => { $("standort-info").textContent = "Standort nicht freigegeben – gib stattdessen deine PLZ ein."; },
+    {enableHighAccuracy: false, timeout: 10000});
+});
+$("umkreis").addEventListener("change", e => { opt.umkreis = +e.target.value; speicher("pr_opt", opt); zeichne(); if (heim && kreis) karte.fitBounds(kreis.getBounds()); });
+["toom", "obi", "bestand"].forEach(k => $("f-" + k).addEventListener("change", e => { opt[k] = e.target.checked; speicher("pr_opt", opt); zeichne(); }));
+
+// ---------- Daten laden ----------
+async function lade(erstesMal) {
+  try {
+    const r = await fetch("daten.json?t=" + Date.now(), {cache: "no-store"});
+    daten = await r.json();
+    zeichne();
+    if (erstesMal && heim) {
+      $("standort-info").textContent = `Standort: ${heim.label} – nur in deinem Browser gespeichert.`;
+      if (opt.umkreis && kreis) karte.fitBounds(kreis.getBounds(), {padding: [10, 10]}); else karte.setView([heim.lat, heim.lon], 9);
+    }
+  } catch (e) {
+    $("stand").textContent = "noch keine Daten";
+    $("liste").innerHTML = `<div class="leer">Die Übersicht wurde noch nicht erzeugt. Starte den Workflow „PortaSplit-Karte“ unter Actions.</div>`;
+  }
+}
+lade(true);
+setInterval(() => lade(false), 5 * 60 * 1000);
+setInterval(() => daten && ($("stand").textContent = `Stand ${vor(daten.aktualisiert)} (${new Date(daten.aktualisiert).toLocaleString("de-DE", {dateStyle: "short", timeStyle: "short"})})`), 60 * 1000);
+</script>
+</body>
+</html>
