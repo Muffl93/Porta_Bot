@@ -43,6 +43,8 @@ jobs:
 
       # Deutschlandweit, ohne Standort – die Seite berechnet Entfernungen im Browser.
       - name: Alle Märkte prüfen
+        env:
+          KARTE_PASSWORT: ${{ secrets.KARTE_PASSWORT }}
         run: python checker.py --karte _site
 
       - name: Verlauf speichern
