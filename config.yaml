@@ -1,0 +1,99 @@
+# ---------------------------------------------------------------------------
+# PortaSplit-Bot – Einstellungen
+# Geheimnisse (Telegram-Token, Chat-ID) stehen NICHT hier, sondern in
+# GitHub Secrets bzw. als Umgebungsvariablen (siehe README).
+# ---------------------------------------------------------------------------
+
+# Dein Standort steht NICHT hier (das Repo ist öffentlich), sondern im
+# GitHub-Secret STANDORT – bzw. lokal in geheim.env. Siehe README.
+
+# Märkte im Umkreis von X km prüfen. 0 = ganz Deutschland.
+umkreis_km: 50
+
+# Angebote über diesem Preis (in Euro) werden ignoriert (Wucherpreise).
+# Gilt nur, wenn der Shop einen Preis angibt. 0 = keine Grenze.
+max_preis: 1000
+
+# Wenn eine Quelle so oft hintereinander fehlschlägt, kommt eine Telegram-Warnung.
+fehler_warnung_nach: 6
+
+# ---------------------------------------------------------------------------
+# Quellen
+# ---------------------------------------------------------------------------
+
+# toom: echter Bestand pro Markt (dieselbe Abfrage, die toom.de selbst nutzt).
+# 9350668 = Mobiles Klimagerät 'PortaSplit' 12000 BTU/h
+toom:
+  aktiv: true
+  artikel: ["9350668"]
+
+# OBI: echter Bestand pro Markt.
+# 8620890 = Midea mobile Split-Klimaanlage PortaSplit (12.000 BTU)
+obi:
+  aktiv: true
+  artikel: ["8620890"]
+
+# Online-Shops: Verfügbarkeit aus den strukturierten Produktdaten der Seite.
+# "pruefwort" (optional) muss auf der Seite vorkommen, sonst gilt die Seite als
+# "Produkt nicht mehr gelistet" (Schutz vor Umleitungen auf andere Produkte).
+# EAN der 12.000-BTU-Version: 4048164116478
+online_shops:
+  - name: MediaMarkt
+    url: https://www.mediamarkt.de/de/product/_midea-porta-split-klimaanlage-grau-max-raumgrosse-42-m-eek-a-142245268.html
+    pruefwort: "142245268"
+  - name: Saturn
+    url: https://www.saturn.de/de/product/_midea-porta-split-klimaanlage-grau-max-raumgrosse-42-m-eek-a-142245268.html
+    pruefwort: "142245268"
+  - name: Hagebau
+    url: https://www.hagebau.de/p/midea-klimaanlage-portasplit-anP7004600334/
+    pruefwort: "4048164116478"
+  - name: Euronics
+    url: https://www.euronics.de/haus-und-haushalt/heizen-lueften-kuehlen/kuehlen/split-klimageraete/porta-split-split-klimageraet-4065327878899
+    pruefwort: "4048164116478"
+  - name: Amazon
+    url: https://www.amazon.de/dp/B0D3PP64JS
+    typ: amazon
+  - name: Amazon (2)
+    url: https://www.amazon.de/dp/B0GX16LKSC
+    typ: amazon
+  - name: Klimaworld
+    url: https://www.klimaworld.com/products/midea-portasplit-mobile-split-klimaanlage-3-5-kw30038
+  - name: Solarprofi-24
+    url: https://shop.solarprofi-24.de/haustechnik/7212/midea-mobiles-split-klimageraet-porta-split-3-5-kw-r-32-raumklimageraet-4-in-1-komfort
+  - name: Tecedo
+    url: https://www.tecedo.de/midea-porta-split-klimageraet-203567.html
+  - name: Klimafy
+    url: https://klimafy.de/a/midea-portasplit-klimageraet-diy-mobile-split-klimaanlage-12k-eek-a-a/9894907/
+  - name: Entratek
+    url: https://www.entratek-shop.de/p/midea-portasplit-klimaanlage-mobile-waermepumpe-kuehlen-a-heizen-a-12000-btu-3-5kw
+  - name: Selfio
+    url: https://www.selfio.de/produkte/midea-mobile-klimaanlage-portasplit-fuer-raeume-bis-zu-42-m2
+  - name: Klima-Vertrieb
+    url: https://klima-vertrieb.de/klima/mobile-klimaanlagen/midea/819/midea-portasplit-mobiles-split-klimageraet-waermepumpe-3-5-kw-a
+  - name: GRZ Haustechnik
+    url: https://grz-haustechnik.de/klima/mobile-klimageraete/1768/mobiles-split-klimageraet-r-32-midea-porta-split-3-5kw
+  - name: Talent King
+    url: https://talent-king.de/products/midea-portasplit-mobiles-split-klimagerat-warmepumpe-3-5-kw-a
+  - name: Solarhandel24
+    url: https://solarhandel24.de/products/midea-portasplit-klimaanlage
+  - name: Schwab Klima
+    url: https://www.schwab-klima.de/product-page/midea-portasplit-mobiles-klimager%C3%A4t-3-5kw
+  - name: Prosatech
+    url: https://prosatech.de/Mobile-Klimaanlage-Midea-PortaSplit-35kw
+  - name: Mediadeal
+    url: https://www.mediadeal.de/haus-garten/haustechnik/klimageraete/19421/midea-porta-split-klimageraet-3.500w
+  - name: GR Solar
+    url: https://gr-solar.de/produkt/midea-portasplit-klimaanlage-35-kw
+  - name: tado Shop
+    url: https://shop.tado.com/products/midea-portasplit-mobile-split-air-conditioner-3-5-kw-tado-smart-ac-control-v3
+  # Bekannte Links, die am 05.11.2026 nicht mehr funktionierten (404) bzw.
+  # keine auswertbaren Daten liefern (expert lädt den Bestand nachträglich per Skript).
+  # Neuen Link suchen und hier eintragen, dann das "#" entfernen:
+  # - name: Hornbach
+  #   url: https://www.hornbach.de/p/...
+  # - name: Bauhaus
+  #   url: https://www.bauhaus.info/p/...
+  # - name: Globus Baumarkt
+  #   url: https://www.globus-baumarkt.de/p/...
+  # - name: expert
+  #   url: https://www.expert.de/shop/unsere-produkte/haushalt-kuche/wohnklima/klimagerate/32750011559-portasplit-mobile-split-klimaanlage.html
